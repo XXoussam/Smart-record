@@ -63,6 +63,8 @@ function App() {
   const MOTION_THRESHOLD = 15; // Increased sensitivity (was 20) to detect faint cursor changes
   const JITTER_THRESHOLD = 5;  // Lowered deadzone to follow small micro-movements
   const EDGE_BUFFER = 50;      // Pixels from edge to consider "about to leave"
+  const INNER_PADDING = 80;    // Safe zone inside the crop; only re-center when cursor hits this padding
+  const TRACKING_SMOOTHING = 0.2; // Lower = slower tracking, higher = snappier
 
   // --- Handlers ---
 
@@ -201,17 +203,39 @@ function App() {
         const avgX = totalX / changedPixelCount;
         const avgY = totalY / changedPixelCount;
 
-        // Map to video space
-        let targetX = (avgX / mc.width) * video.videoWidth - (cropSize.width / 2);
-        let targetY = (avgY / mc.height) * video.videoHeight - (cropSize.height / 2);
-
-        // Clamp to screen bounds
-        targetX = clamp(targetX, 0, video.videoWidth - cropSize.width);
-        targetY = clamp(targetY, 0, video.videoHeight - cropSize.height);
-
-        // Check if cursor is near edge (off-screen detection heuristic)
-        // If the center of motion is very close to the edge, we might be leaving
         const motionCenterX = (avgX / mc.width) * video.videoWidth;
+        const motionCenterY = (avgY / mc.height) * video.videoHeight;
+        let targetX = currentCropRef.current.x;
+        let targetY = currentCropRef.current.y;
+        const padX = Math.min(INNER_PADDING, Math.max(0, Math.floor(cropSize.width / 2) - 1));
+        const padY = Math.min(INNER_PADDING, Math.max(0, Math.floor(cropSize.height / 2) - 1));
+        const safeLeft = targetX + padX;
+        const safeRight = targetX + cropSize.width - padX;
+        const safeTop = targetY + padY;
+        const safeBottom = targetY + cropSize.height - padY;
+        const isInsideSafeZone =
+          motionCenterX >= safeLeft &&
+          motionCenterX <= safeRight &&
+          motionCenterY >= safeTop &&
+          motionCenterY <= safeBottom;
+
+        if (!isInsideSafeZone) {
+          if (motionCenterX < safeLeft) {
+            targetX -= (safeLeft - motionCenterX);
+          } else if (motionCenterX > safeRight) {
+            targetX += (motionCenterX - safeRight);
+          }
+
+          if (motionCenterY < safeTop) {
+            targetY -= (safeTop - motionCenterY);
+          } else if (motionCenterY > safeBottom) {
+            targetY += (motionCenterY - safeBottom);
+          }
+
+          targetX = clamp(targetX, 0, video.videoWidth - cropSize.width);
+          targetY = clamp(targetY, 0, video.videoHeight - cropSize.height);
+        }
+
         const isNearEdge = 
              motionCenterX < EDGE_BUFFER || 
              motionCenterX > (video.videoWidth - EDGE_BUFFER);
@@ -242,7 +266,7 @@ function App() {
           Math.pow(targetY - targetCropRef.current.y, 2)
         );
 
-        if (dist > JITTER_THRESHOLD) {
+        if (!isInsideSafeZone && dist > JITTER_THRESHOLD) {
           targetCropRef.current = { x: targetX, y: targetY };
           setTargetCrop({ x: targetX, y: targetY }); 
           lastActiveTimeRef.current = Date.now();
@@ -275,8 +299,7 @@ function App() {
            targetCropRef.current = targetCrop;
         }
 
-        // SMOOTHING: 0.25 is snappy but smooth
-        const smoothing = mode === TrackingMode.MANUAL ? 1 : 0.25; 
+        const smoothing = mode === TrackingMode.MANUAL ? 1 : TRACKING_SMOOTHING; 
         
         currentCropRef.current.x = lerp(currentCropRef.current.x, targetCropRef.current.x, smoothing);
         currentCropRef.current.y = lerp(currentCropRef.current.y, targetCropRef.current.y, smoothing);
