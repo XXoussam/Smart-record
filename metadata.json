@@ -1,0 +1,8 @@
+{
+  "name": "CineStream - AI Smart Recorder",
+  "description": "A professional screen recorder with 9:16 vertical crop, smooth motion tracking, and AI-powered social media caption generation.",
+  "requestFramePermissions": [
+    "microphone",
+    "display-capture"
+  ]
+}
